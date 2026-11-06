@@ -1,0 +1,25 @@
+[project]
+name = "stock-monitor"
+version = "0.1.0"
+requires-python = ">=3.11"
+dependencies = [
+  "nhplug>=0.4.2",
+  "fastapi>=0.115",
+  "uvicorn>=0.30",
+  "apscheduler>=3.10,<4",
+  "numpy>=1.26",
+  "requests>=2.31",
+]
+
+[project.scripts]
+stock-monitor = "app.main:run"
+
+[build-system]
+requires = ["setuptools>=68"]
+build-backend = "setuptools.build_meta"
+
+[tool.setuptools]
+packages = ["app"]
+
+[tool.setuptools.package-data]
+app = ["static/*"]
