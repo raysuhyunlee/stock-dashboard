@@ -12,6 +12,12 @@ from . import analytics, backfill, nh, store
 log = logging.getLogger("monitor")
 _lock = threading.Lock()
 state = {"last_update": None, "last_error": None}
+_failing = False  # 실패 알림은 연속 실패 구간마다 한 번만 보낸다
+
+
+def _report(key: str, msg: str) -> None:
+    notify(msg)
+    store.record_alert(key, msg)
 
 
 def notify(text: str) -> bool:
@@ -52,6 +58,7 @@ def check_alerts(accounts: list[dict]) -> None:
 
 
 def refresh() -> dict:
+    global _failing
     if not _lock.acquire(blocking=False):
         return state
     try:
@@ -65,11 +72,18 @@ def refresh() -> dict:
                 log.exception("오늘 입출금 조회 실패(%s)", a["acct"])
         store.save_snapshot(store.today(), accounts)
         check_alerts(accounts)
-        state.update(last_update=datetime.now(store.KST).isoformat(timespec="seconds"),
-                     last_error=None)
+        now = datetime.now(store.KST).isoformat(timespec="seconds")
+        state.update(last_update=now, last_error=None)
+        if _failing:
+            _failing = False
+            _report(f"recovered:{now}", "[복구] 잔고 조회가 다시 정상 동작합니다.")
     except Exception as e:  # 다음 주기에 재시도
         log.exception("refresh 실패")
         state["last_error"] = str(e)
+        if not _failing:
+            _failing = True
+            now = datetime.now(store.KST).isoformat(timespec="seconds")
+            _report(f"error:{now}", f"[오류] 잔고 조회 실패 — 확인이 필요합니다: {e}")
     finally:
         _lock.release()
     return state
