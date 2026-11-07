@@ -170,10 +170,11 @@ def returns():
 
 
 @app.get("/api/montecarlo", dependencies=[api])
-def montecarlo(horizon: int = 252, paths: int = 2000, drift: str = "hist"):
-    if not (5 <= horizon <= 756 and 100 <= paths <= 10000 and drift in ("hist", "zero")):
-        raise HTTPException(400, "horizon 5–756, paths 100–10000, drift hist|zero")
-    return jobs.simulate(horizon, paths, drift)
+def montecarlo(horizon: int = 252, paths: int = 2000, drift: str = "hist", years: int = 0):
+    if not (5 <= horizon <= 756 and 100 <= paths <= 10000 and drift in ("hist", "zero")
+            and 0 <= years <= 10):
+        raise HTTPException(400, "horizon 5–756, paths 100–10000, drift hist|zero, years 0(전체)–10")
+    return jobs.simulate(horizon, paths, drift, years)
 
 
 @app.get("/", dependencies=[api])

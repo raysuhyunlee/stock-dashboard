@@ -12,7 +12,6 @@ from . import analytics, backfill, nh, store
 log = logging.getLogger("monitor")
 _lock = threading.Lock()
 state = {"last_update": None, "last_error": None}
-_hist_cache: dict[tuple, list] = {}  # (sym, market, date) → history
 
 
 def notify(text: str) -> bool:
@@ -76,31 +75,21 @@ def refresh() -> dict:
     return state
 
 
-def history(sym: str, market: str) -> list:
-    k = (sym, market, store.today())
-    if k not in _hist_cache:
-        _hist_cache[k] = nh.source().history(sym, market)
-    return _hist_cache[k]
-
-
-def simulate(horizon: int, paths: int, drift: str) -> dict:
+def simulate(horizon: int, paths: int, drift: str, years: int = 0) -> dict:
+    """years=0 이면 기록 전체 기간."""
     s = store.get_settings()
-    all_snaps = store.snapshots()
-    latest = max((y["date"] for y in all_snaps), default="")
-    snaps = [x for x in all_snaps if x["date"] == latest]
-    total_value = sum(x["value"] for x in snaps)
-    positions = [{**h, "key": f"{h['market']}:{h['sym']}"} for h in store.holdings()]
-    histories, errors = {}, []
-    for p in positions:
-        try:
-            histories[p["key"]] = history(p["sym"], p["market"])
-        except Exception as e:
-            errors.append(f"{p['name']}: {e}")
-    cash = total_value - sum(p["value"] for p in positions)
+    series = analytics.returns(store.snapshots())["total"]
+    if not series:
+        return {"error": "계좌 기록이 없습니다."}
+    since = "00000000"
+    if years:
+        today = datetime.strptime(store.today(), "%Y%m%d")
+        since = today.replace(year=today.year - years, day=min(today.day, 28)).strftime("%Y%m%d")
+    daily = [p["daily"] for p in series[1:] if p["date"] >= since]  # 첫날은 수익률 0이라 제외
     # 목표: 연간 목표를 시뮬레이션 기간으로 환산
     target = (1 + s["annual_target"]) ** (horizon / 252) - 1
-    res = analytics.monte_carlo(positions, histories, cash, horizon, paths, drift, target)
-    res["names"] = {p["key"]: p["name"] for p in positions}
+    res = analytics.monte_carlo(daily, series[-1]["value"], horizon, paths, drift, target)
     res["target"] = target
-    res["history_errors"] = errors
+    res["years"] = years
+    res["since"] = max(since, series[1]["date"]) if len(series) > 1 else since
     return res

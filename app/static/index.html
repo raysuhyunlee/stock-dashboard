@@ -150,13 +150,16 @@ dialog[open] { margin-top: 12vh; }
   <section class="card">
     <h2>몬테카를로 전망</h2>
     <div class="controls">
-      <select id="mcTarget" aria-label="대상"><option value="total">전체 포트폴리오</option></select>
       <select id="mcHorizon" aria-label="기간">
         <option value="63">3개월</option><option value="126">6개월</option>
         <option value="252" selected>1년</option><option value="504">2년</option>
       </select>
       <select id="mcDrift" aria-label="추세">
         <option value="hist">과거 추세 반영</option><option value="zero">추세 없음</option>
+      </select>
+      <select id="mcYears" aria-label="과거 데이터 구간">
+        <option value="1">최근 1년 데이터</option><option value="3">최근 3년 데이터</option>
+        <option value="5">최근 5년 데이터</option><option value="0" selected>전체 기간 데이터</option>
       </select>
     </div>
     <div class="chart tall"><canvas id="cMc"></canvas></div>
@@ -289,7 +292,6 @@ async function loadAll() {
   renderSummary();
   const ret = await req('/api/returns');
   renderReturns(ret.total);
-  fillMcTargets();
   loadMc();
 }
 
@@ -449,28 +451,18 @@ function applyWindow() {
 
 // ---------------------------------------------------------------- Monte Carlo
 let mc = null, mcSeq = 0;
-function fillMcTargets() {
-  const sel = $('mcTarget'), cur = sel.value;
-  const seen = new Map();
-  summary.holdings.forEach(h => seen.set(`${h.market}:${h.sym}`, h.name));
-  sel.innerHTML = '<option value="total">전체 포트폴리오</option>' +
-    [...seen].map(([k, n]) => `<option value="${esc(k)}">${esc(n)}</option>`).join('');
-  if ([...sel.options].some(o => o.value === cur)) sel.value = cur;
-}
 async function loadMc() {
   const seq = ++mcSeq;
   $('mcNote').textContent = '계산 중…';
   try {
-    const r = await req(`/api/montecarlo?horizon=${$('mcHorizon').value}&drift=${$('mcDrift').value}`);
+    const r = await req(`/api/montecarlo?horizon=${$('mcHorizon').value}&drift=${$('mcDrift').value}&years=${$('mcYears').value}`);
     if (seq !== mcSeq) return;
     mc = r; renderMc();
   } catch (e) { $('mcNote').textContent = '시뮬레이션에 실패했습니다: ' + e.message; }
 }
 function renderMc() {
   if (mc.error) { charts.cMc?.destroy(); $('mcStats').innerHTML = ''; $('mcNote').textContent = mc.error; return; }
-  const key = $('mcTarget').value, isTotal = key === 'total';
-  const src = isTotal ? mc.total : mc.stocks[key];
-  if (!src) { $('mcNote').textContent = '이 종목은 시세 이력이 부족해 제외되었습니다.'; charts.cMc?.destroy(); $('mcStats').innerHTML = ''; return; }
+  const src = mc.total;
   const b = src.bands.map(row => [0, ...row.map(v => v - 1)]);   // 시작점 0% 추가
   const labels = [0, ...mc.days].map(d => d === 0 ? '현재' : `${d}일`);
   const accent = css('--accent'), soft = css('--accent-soft'), softer = css('--accent-softer');
@@ -486,27 +478,21 @@ function renderMc() {
     ] },
     options: { ...baseOpts(v => pct(v, 0)),
       plugins: { legend: { display: false }, tooltip: { itemSort: (a, b) => b.raw - a.raw,
-        callbacks: { label: c => ` ${c.dataset.label}: ${pct(c.raw, 1)}${isTotal ? '  ' + won(mc.total.start * (1 + c.raw)) : ''}` } } } },
+        callbacks: { label: c => ` ${c.dataset.label}: ${pct(c.raw, 1)}  ${won(src.start * (1 + c.raw))}` } } } },
   });
   const final = b.map(r => r[r.length - 1]);
-  const stats = isTotal ? [
+  const stats = [
     ['중앙값', pct(final[2], 1)], ['90% 범위', `${pct(final[0], 0)} ~ ${pct(final[4], 0)}`],
-    ['손실 확률', (mc.total.p_loss * 100).toFixed(0) + '%'],
-    [`목표 ${pct(mc.target, 0)} 이상 확률`, (mc.total.p_target * 100).toFixed(0) + '%'],
-  ] : [
-    ['중앙값', pct(final[2], 1)], ['90% 범위', `${pct(final[0], 0)} ~ ${pct(final[4], 0)}`],
-    ['연 변동성', (src.ann_vol * 100).toFixed(0) + '%'], ['연 추세', pct(src.ann_drift, 0)],
+    ['손실 확률', (src.p_loss * 100).toFixed(0) + '%'],
+    [`목표 ${pct(mc.target, 0)} 이상 확률`, (src.p_target * 100).toFixed(0) + '%'],
   ];
   $('mcStats').innerHTML = stats.map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
-  const notes = [`최근 ${mc.history_days}거래일 기준 · ${mc.paths.toLocaleString()}회 시뮬레이션 · 진한 영역 25–75%, 옅은 영역 5–95%`];
-  const skipped = mc.skipped.map(k => mc.names[k] || k);
-  if (skipped.length) notes.push(`이력 부족으로 가격 고정: ${skipped.join(', ')}`);
-  if (mc.history_errors.length) notes.push(`시세 조회 실패: ${mc.history_errors.join('; ')}`);
-  $('mcNote').textContent = notes.join(' · ');
+  const since = `${mc.since.slice(0, 4)}.${mc.since.slice(4, 6)}.${mc.since.slice(6)}`;
+  $('mcNote').textContent = `내 계좌 수익률(입출금 제외) ${since}부터 ${mc.history_days}거래일 기준 · 연 추세 ${pct(src.ann_drift, 0)}, 연 변동성 ${(src.ann_vol * 100).toFixed(0)}% · ${mc.paths.toLocaleString()}회 시뮬레이션 · 진한 영역 25–75%, 옅은 영역 5–95%`;
 }
-$('mcTarget').onchange = () => mc && renderMc();
 $('mcHorizon').onchange = loadMc;
 $('mcDrift').onchange = loadMc;
+$('mcYears').onchange = loadMc;
 
 // ---------------------------------------------------------------- actions
 $('btnRefresh').onclick = async () => {
