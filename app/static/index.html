@@ -33,14 +33,21 @@ header h1 { font-size: 18px; margin: 0; flex: 1; }
 .meta { color: var(--muted); font-size: var(--fs-s); }
 .card { background: var(--surface); border: 1px solid var(--border); border-radius: var(--r); padding: var(--s4); min-width: 0; }
 .card h2 { font-size: var(--fs-m); margin: 0 0 var(--s3); font-weight: 600; }
-.kpis { display: grid; grid-template-columns: repeat(auto-fit, minmax(200px, 1fr)); gap: var(--s4); }
+.kpis { display: grid; grid-template-columns: minmax(200px, 1fr) 3fr; gap: var(--s4); }
+@media (max-width: 720px) { .kpis { grid-template-columns: 1fr; } }
+.ret-head { display: flex; align-items: center; justify-content: space-between; margin-bottom: var(--s3); }
+.ret-head h2 { margin: 0; }
+.ret-head button { padding: 2px 10px; font-size: var(--fs-s); }
+.ret-row { display: grid; grid-template-columns: repeat(3, 1fr); }
+.ret-row > .kpi { padding: 0 var(--s4); min-width: 0; }
+.ret-row > .kpi:first-child { padding-left: 0; }
+.ret-row > .kpi + .kpi { border-left: 1px solid var(--border); }
+.dlg-head h2 { flex: 1; font-size: var(--fs-m); margin: 0; font-weight: 600; }
+#dlgRet td.up, #dlgRet td.down { font-weight: 600; }
 .kpi .label { color: var(--text-2); font-size: var(--fs-s); }
 .kpi .value { font-size: var(--fs-l); font-weight: 600; font-variant-numeric: tabular-nums; }
 .kpi .sub { color: var(--muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
 .up { color: var(--up); } .down { color: var(--down); }
-.bar { height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; margin-top: var(--s2); }
-.bar > div { height: 100%; background: var(--accent); border-radius: 3px; }
-.bar.done > div { background: var(--up); }
 .chart { position: relative; height: 220px; }
 .chart.tall { height: 300px; }
 .chart.huge { height: min(56vh, 480px); min-height: 280px; }
@@ -122,10 +129,14 @@ dialog[open] { margin-top: 12vh; }
 
   <section class="kpis">
     <div class="card kpi"><div class="label">총자산</div><div class="value" id="kValue">–</div><div class="sub" id="kPnl"></div></div>
-    <div class="card kpi"><div class="label">오늘</div><div class="value" id="kDaily">–</div><div class="sub" id="kDate"></div></div>
-    <div class="card kpi"><div class="label">전체 기간</div><div class="value" id="kPeriod">–</div><div class="sub" id="kSince"></div></div>
-    <div class="card kpi"><div class="label">연평균</div><div class="value" id="kAnn">–</div><div class="sub">전체 기간 연 환산</div></div>
-    <div class="card kpi"><div class="label">올해</div><div class="value" id="kYtd">–</div><div class="sub" id="kTarget"></div><div class="bar" id="kBar"><div></div></div></div>
+    <div class="card">
+      <div class="ret-head"><h2>수익률</h2><button id="btnRetMore" aria-haspopup="dialog">전체 보기</button></div>
+      <div class="ret-row">
+        <div class="kpi"><div class="label">연평균</div><div class="value" id="kAnn">–</div></div>
+        <div class="kpi"><div class="label">올해</div><div class="value" id="kYtd">–</div></div>
+        <div class="kpi"><div class="label">오늘</div><div class="value" id="kDaily">–</div></div>
+      </div>
+    </div>
   </section>
 
   <section class="card">
@@ -166,6 +177,16 @@ dialog[open] { margin-top: 12vh; }
     <ul class="alerts" id="alerts"></ul>
   </section>
 </main>
+
+<dialog id="dlgRet">
+  <div class="dlg-head">
+    <h2>수익률</h2>
+    <button type="button" class="icon" id="btnRetClose" title="닫기" aria-label="닫기">
+      <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
+    </button>
+  </div>
+  <table><tbody id="tYearly"></tbody></table>
+</dialog>
 
 <dialog id="dlg">
   <div class="dlg-head">
@@ -300,15 +321,11 @@ function renderSummary() {
   $('kValue').textContent = won(t.value);
   $('kPnl').innerHTML = t.cost ? `평가손익 <span class="${cls(t.pnl)}">${won(t.pnl)} (${pct(t.pnl_rate)})</span>` : '';
   signed($('kDaily'), t.daily, pct);
-  $('kDate').textContent = fmtDate(s.date);
-  signed($('kPeriod'), t.period, pct);
-  $('kSince').textContent = t.since ? `${fmtDate(t.since)}부터` : '';
+  $('tYearly').innerHTML =
+    `<tr><td>전체 기간 <span class="code">${t.since ? fmtDate(t.since) + '부터' : ''}</span></td><td class="${cls(t.period)}">${pct(t.period)}</td></tr>`
+    + t.yearly.map(y => `<tr><td>${y.year}년</td><td class="${cls(y.ret)}">${pct(y.ret)}</td></tr>`).join('');
   signed($('kAnn'), t.annualized, pct);
   signed($('kYtd'), t.ytd, pct);
-  $('kTarget').textContent = `목표 ${pct(t.annual_target, 0)}`;
-  const prog = t.ytd == null ? 0 : Math.max(0, Math.min(1, t.ytd / t.annual_target));
-  $('kBar').firstElementChild.style.width = (prog * 100) + '%';
-  $('kBar').classList.toggle('done', prog >= 1);
 
   const hit = [];
   if (t.ytd != null && t.ytd >= t.annual_target) hit.push(`전체 계좌가 연간 목표 ${pct(t.annual_target, 0)}를 달성했습니다.`);
@@ -488,6 +505,9 @@ function renderMc() {
 $('mcYears').onchange = loadMc;
 
 // ---------------------------------------------------------------- actions
+$('btnRetMore').onclick = () => $('dlgRet').showModal();
+$('btnRetClose').onclick = () => $('dlgRet').close();
+
 $('btnRefresh').onclick = async () => {
   const b = $('btnRefresh'); b.disabled = true; b.classList.add('spin');
   try { await req('/api/refresh', { method: 'POST' }); await loadAll(); }

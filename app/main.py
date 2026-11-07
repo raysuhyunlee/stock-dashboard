@@ -157,6 +157,8 @@ def summary():
             "since": tot[0]["date"] if tot else None,
             "annualized": analytics.annualized(tot),           # 연 환산(기하)
             "ytd": analytics.ytd_return(tot, store.today()[:4]),
+            "yearly": [{"year": y, "ret": analytics.ytd_return(tot, y)}
+                       for y in sorted({p["date"][:4] for p in tot}, reverse=True)],
             "annual_target": s["annual_target"],
             "holding_target": s["default_account_target"],
         },
