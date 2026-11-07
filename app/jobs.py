@@ -75,7 +75,7 @@ def refresh() -> dict:
     return state
 
 
-def simulate(horizon: int, paths: int, drift: str, years: int = 0) -> dict:
+def simulate(paths: int, years: int = 0) -> dict:
     """years=0 이면 기록 전체 기간."""
     s = store.get_settings()
     series = analytics.returns(store.snapshots())["total"]
@@ -86,9 +86,8 @@ def simulate(horizon: int, paths: int, drift: str, years: int = 0) -> dict:
         today = datetime.strptime(store.today(), "%Y%m%d")
         since = today.replace(year=today.year - years, day=min(today.day, 28)).strftime("%Y%m%d")
     daily = [p["daily"] for p in series[1:] if p["date"] >= since]  # 첫날은 수익률 0이라 제외
-    # 목표: 연간 목표를 시뮬레이션 기간으로 환산
-    target = (1 + s["annual_target"]) ** (horizon / 252) - 1
-    res = analytics.monte_carlo(daily, series[-1]["value"], horizon, paths, drift, target)
+    target = s["annual_target"]  # 시뮬레이션 기간은 1년(252거래일) 고정
+    res = analytics.monte_carlo(daily, series[-1]["value"], 252, paths, target)
     res["target"] = target
     res["years"] = years
     res["since"] = max(since, series[1]["date"]) if len(series) > 1 else since

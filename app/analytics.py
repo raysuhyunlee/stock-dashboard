@@ -42,7 +42,7 @@ def ytd_return(total_series: list[dict], year: str) -> float | None:
 
 
 def monte_carlo(daily: list[float], start: float, horizon: int = 252, paths: int = 2000,
-                drift: str = "hist", target: float | None = None, seed: int | None = None) -> dict:
+                target: float | None = None, seed: int | None = None) -> dict:
     """계좌 일간 수익률(시간가중, 입출금 제외)의 평균·분산으로 GBM 경로를 만든다.
 
     실제 거래(매수·매도·비중 변화)가 반영된 계좌 전체 수익률 기준이다. 결과는 현재 가치 대비 배율.
@@ -50,7 +50,7 @@ def monte_carlo(daily: list[float], start: float, horizon: int = 252, paths: int
     lr = np.log1p(np.asarray(daily, dtype=float))
     if len(lr) < 20:
         return {"error": "계좌 수익률 기록이 부족해 시뮬레이션할 수 없습니다."}
-    mu = lr.mean() if drift == "hist" else 0.0
+    mu = lr.mean()
     sd = lr.std(ddof=1)
 
     rng = np.random.default_rng(seed)
@@ -64,7 +64,7 @@ def monte_carlo(daily: list[float], start: float, horizon: int = 252, paths: int
             bands.append(np.percentile(np.exp(logcum), PCTS))
     final = np.exp(logcum) - 1
     return {
-        "horizon": horizon, "paths": paths, "drift": drift, "days": days, "percentiles": PCTS,
+        "horizon": horizon, "paths": paths, "days": days, "percentiles": PCTS,
         "total": {
             "start": start,
             "bands": np.array(bands).T.tolist(),  # (5, steps), 배율
