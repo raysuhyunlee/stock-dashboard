@@ -434,6 +434,17 @@ function applyWindow() {
     if (!step || !span) return;
     win = clampWin(win[0] + step, win[1] + step); applyWindow(); e.preventDefault();
   });
+  let acc = 0;  // 잔고 차트 가로 스크롤 = 윈도우 이동(세로는 페이지 스크롤 유지)
+  $('cBal').addEventListener('wheel', e => {
+    if (!span || Math.abs(e.deltaX) <= Math.abs(e.deltaY)) return;
+    e.preventDefault();
+    const area = charts.cBal.chartArea;
+    acc += e.deltaX * (win[1] - win[0]) / (area.right - area.left);
+    const step = Math.trunc(acc);
+    if (!step) return;
+    acc -= step;
+    win = clampWin(win[0] + step, win[1] + step); applyWindow();
+  }, { passive: false });
 })();
 
 // ---------------------------------------------------------------- Monte Carlo
