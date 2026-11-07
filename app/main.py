@@ -155,6 +155,7 @@ def summary():
             "daily": tot[-1]["daily"] if len(tot) > 1 else None,
             "period": tot[-1]["cumulative"] if tot else None,  # 기록 시작 이후 누적
             "since": tot[0]["date"] if tot else None,
+            "annualized": analytics.annualized(tot),           # 연 환산(기하)
             "ytd": analytics.ytd_return(tot, store.today()[:4]),
             "annual_target": s["annual_target"],
             "holding_target": s["default_account_target"],

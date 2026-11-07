@@ -41,6 +41,18 @@ def ytd_return(total_series: list[dict], year: str) -> float | None:
     return (1 + pts[-1]["cumulative"]) / (1 + base) - 1
 
 
+def annualized(total_series: list[dict]) -> float | None:
+    """누적 시간가중 수익률을 기간(달력일) 기준 연 복리로 환산. 30일 미만이면 None."""
+    if len(total_series) < 2:
+        return None
+    from datetime import date
+    d = lambda s: date(int(s[:4]), int(s[4:6]), int(s[6:]))
+    days = (d(total_series[-1]["date"]) - d(total_series[0]["date"])).days
+    if days < 30:
+        return None
+    return (1 + total_series[-1]["cumulative"]) ** (365 / days) - 1
+
+
 def monte_carlo(daily: list[float], start: float, horizon: int = 252, paths: int = 2000,
                 target: float | None = None, seed: int | None = None) -> dict:
     """계좌 일간 수익률(시간가중, 입출금 제외)의 평균·분산으로 GBM 경로를 만든다.
