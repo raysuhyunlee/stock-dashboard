@@ -185,6 +185,6 @@ def index():
 
 
 def run():
-    """uv run stock-monitor — HOST/PORT 환경변수로 바꿀 수 있다."""
+    """uv run stock-dashboard — HOST/PORT 환경변수로 바꿀 수 있다."""
     import uvicorn
     uvicorn.run(app, host=os.environ.get("HOST", "127.0.0.1"), port=int(os.environ.get("PORT", "7777")))

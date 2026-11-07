@@ -3,7 +3,7 @@
 ## 실행
 
 ```bash
-DASHBOARD_PASSWORD=비밀번호 uv run stock-monitor   # http://127.0.0.1:7777
+DASHBOARD_PASSWORD=비밀번호 uv run stock-dashboard   # http://127.0.0.1:7777
 ```
 
 앱키, 시크릿, 텔레그램은 웹 설정 화면에서 입력한다.

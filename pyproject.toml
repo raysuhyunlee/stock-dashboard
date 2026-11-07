@@ -1,5 +1,5 @@
 [project]
-name = "stock-monitor"
+name = "stock-dashboard"
 version = "0.1.0"
 requires-python = ">=3.11"
 dependencies = [
@@ -12,7 +12,7 @@ dependencies = [
 ]
 
 [project.scripts]
-stock-monitor = "app.main:run"
+stock-dashboard = "app.main:run"
 
 [build-system]
 requires = ["setuptools>=68"]
