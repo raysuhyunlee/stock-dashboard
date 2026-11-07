@@ -75,9 +75,10 @@ def refresh() -> dict:
     return state
 
 
-def simulate(paths: int, years: int = 0) -> dict:
-    """years=0 이면 기록 전체 기간."""
+def simulate(paths: int) -> dict:
+    """설정의 mc_years(0 = 전체 기록) 구간 수익률로 mc_months 개월 뒤까지 전망."""
     s = store.get_settings()
+    years, months = s["mc_years"], s["mc_months"]
     series = analytics.returns(store.snapshots())["total"]
     if not series:
         return {"error": "계좌 기록이 없습니다."}
@@ -86,9 +87,9 @@ def simulate(paths: int, years: int = 0) -> dict:
         today = datetime.strptime(store.today(), "%Y%m%d")
         since = today.replace(year=today.year - years, day=min(today.day, 28)).strftime("%Y%m%d")
     daily = [p["daily"] for p in series[1:] if p["date"] >= since]  # 첫날은 수익률 0이라 제외
-    target = s["annual_target"]  # 시뮬레이션 기간은 1년(252거래일) 고정
-    res = analytics.monte_carlo(daily, series[-1]["value"], 252, paths, target)
-    res["target"] = target
+    res = analytics.monte_carlo(daily, series[-1]["value"], round(months * 21), paths)
+    res["months"] = months
     res["years"] = years
+    res["start_date"] = series[-1]["date"]
     res["since"] = max(since, series[1]["date"]) if len(series) > 1 else since
     return res

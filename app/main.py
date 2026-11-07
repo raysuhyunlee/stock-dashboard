@@ -59,6 +59,8 @@ class SettingsIn(BaseModel):
     telegram_token: str | None = None
     telegram_chat_id: str | None = None
     tiingo_key: str | None = None
+    mc_months: int | None = Field(None, ge=1, le=12)
+    mc_years: int | None = Field(None, ge=0, le=10)
 
 
 @app.get("/api/settings", dependencies=[api])
@@ -173,10 +175,10 @@ def returns():
 
 
 @app.get("/api/montecarlo", dependencies=[api])
-def montecarlo(paths: int = 2000, years: int = 0):
-    if not (100 <= paths <= 10000 and 0 <= years <= 10):
-        raise HTTPException(400, "paths 100–10000, years 0(전체)–10")
-    return jobs.simulate(paths, years)
+def montecarlo(paths: int = 2000):
+    if not 100 <= paths <= 10000:
+        raise HTTPException(400, "paths 100–10000")
+    return jobs.simulate(paths)
 
 
 @app.get("/", dependencies=[api])

@@ -49,9 +49,9 @@ header h1 { font-size: 18px; margin: 0; flex: 1; }
 .kpi .sub { color: var(--muted); font-size: var(--fs-s); font-variant-numeric: tabular-nums; }
 .up { color: var(--up); } .down { color: var(--down); }
 .chart { position: relative; height: 220px; }
-.chart.tall { height: 300px; }
 .chart.huge { height: min(56vh, 480px); min-height: 280px; }
 .balance-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+#fcNote { margin-top: var(--s2); }
 .seeker { position: relative; height: 56px; margin-top: var(--s3); touch-action: none; user-select: none; cursor: pointer; }
 .seeker canvas { position: absolute; inset: 0; }
 .seeker .win { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); border: 1px solid var(--accent);
@@ -79,9 +79,6 @@ button.icon { width: 34px; height: 34px; padding: 0; display: inline-grid; place
 button:disabled { opacity: .5; cursor: default; }
 button svg { width: 18px; height: 18px; }
 .spin svg { animation: spin 1s linear infinite; } @keyframes spin { to { transform: rotate(360deg); } }
-.stats { display: flex; flex-wrap: wrap; gap: var(--s5); margin-top: var(--s3); }
-.stats div { font-size: var(--fs-s); color: var(--text-2); }
-.stats b { display: block; font-size: 16px; color: var(--text); font-variant-numeric: tabular-nums; }
 .notice { border-left: 3px solid var(--warn); padding: var(--s2) var(--s3); background: var(--surface); border-radius: 6px; }
 .notice.alert { border-color: var(--up); }
 ul.alerts { list-style: none; margin: 0; padding: 0; }
@@ -149,6 +146,7 @@ dialog[open] { margin-top: 12vh; }
         <div class="handle l"></div><div class="handle r"></div>
       </div>
     </div>
+    <div class="meta" id="fcNote"></div>
   </section>
 
   <section class="card">
@@ -157,19 +155,6 @@ dialog[open] { margin-top: 12vh; }
       <thead><tr><th>종목</th><th>수량</th><th>평가금액</th><th>평가손익</th><th>수익률</th></tr></thead>
       <tbody id="tHoldings"></tbody>
     </table></div>
-  </section>
-
-  <section class="card">
-    <h2>몬테카를로 전망</h2>
-    <div class="controls">
-      <select id="mcYears" aria-label="과거 데이터 구간">
-        <option value="1">최근 1년 데이터</option><option value="3">최근 3년 데이터</option>
-        <option value="5">최근 5년 데이터</option><option value="0" selected>전체 기간 데이터</option>
-      </select>
-    </div>
-    <div class="chart tall"><canvas id="cMc"></canvas></div>
-    <div class="stats" id="mcStats"></div>
-    <div class="meta" id="mcNote"></div>
   </section>
 
   <section class="card">
@@ -194,6 +179,7 @@ dialog[open] { margin-top: 12vh; }
       <button type="button" role="tab" data-tab="api" aria-selected="true">API</button>
       <button type="button" role="tab" data-tab="goal" aria-selected="false">목표</button>
       <button type="button" role="tab" data-tab="notify" aria-selected="false">알림</button>
+      <button type="button" role="tab" data-tab="forecast" aria-selected="false">전망</button>
       <button type="button" role="tab" data-tab="backfill" aria-selected="false">과거 기록</button>
     </div>
     <button type="button" class="icon" id="btnClose" title="닫기" aria-label="닫기">
@@ -233,6 +219,20 @@ dialog[open] { margin-top: 12vh; }
       <button type="submit" class="primary">저장</button>
     </div>
   </form>
+  <form class="tab-panel" data-panel="forecast" role="tabpanel" hidden>
+    <p class="meta">과거 일간 수익률(입출금 제외)의 평균·변동성으로 앞으로의 잔고를 2,000회 시뮬레이션해 일별 잔고 차트에 표시합니다.</p>
+    <div class="row">
+      <div class="field"><label for="sMcMonths">전망 기간 (개월)</label><input id="sMcMonths" type="number" step="1" min="1" max="12" required></div>
+      <div class="field"><label for="sMcYears">참고할 과거 수익률</label>
+        <select id="sMcYears"><option value="1">최근 1년</option><option value="3">최근 3년</option>
+          <option value="5">최근 5년</option><option value="0">전체 기간</option></select></div>
+    </div>
+    <div class="actions">
+      <span class="result"></span>
+      <button type="submit" class="primary">저장</button>
+    </div>
+  </form>
+
   <form class="tab-panel" data-panel="backfill" role="tabpanel" hidden>
     <p class="meta">거래내역으로 과거 일별 총자산을 다시 계산해 빈 날짜를 채웁니다. 이미 수집된 날짜는 바꾸지 않습니다.</p>
     <div class="field"><label for="sTiingo">Tiingo 키 (해외주식 과거 시세)</label><input id="sTiingo" type="password" autocomplete="off"></div>
@@ -305,9 +305,9 @@ let summary = null, settings = null;
 async function loadAll() {
   [summary, settings] = await Promise.all([req('/api/summary'), req('/api/settings')]);
   renderSummary();
-  const ret = await req('/api/returns');
-  renderReturns(ret.total);
-  loadMc();
+  const [ret, mc] = await Promise.all([req('/api/returns'),
+    req('/api/montecarlo').catch(e => ({ error: '전망을 계산하지 못했습니다: ' + e.message }))]);
+  renderReturns(ret.total, mc);
 }
 
 function renderSummary() {
@@ -352,7 +352,17 @@ const wonShort = v => Math.abs(v) >= 1e8 ? (v / 1e8).toFixed(Math.abs(v) >= 1e10
 const dayNum = d => Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6)) / 864e5;
 const dayStr = n => new Date(n * 864e5).toISOString().slice(0, 10).replaceAll('-', '.');
 const DEFAULT_DAYS = 365;
-let bal = [], win = null, span = null;  // win·span: [시작, 끝] 일수(UTC 기준 일 번호)
+let bal = [], fc = null, win = null, span = null;  // win·span: [시작, 끝] 일수(UTC 기준 일 번호)
+const FC = [['상위 25%', 3], ['중앙값', 2], ['하위 25%', 1]];  // [이름, percentiles 인덱스]
+
+// 몬테카를로 결과 → 마지막 잔고 날짜부터 이어지는 상위25·중앙·하위25 점(거래일 → 달력일 환산)
+function forecast(mc, last) {
+  if (!mc || mc.error) return null;
+  const x0 = dayNum(last.date), calDays = mc.months * 365 / 12, b = mc.total.bands;
+  const steps = [0, ...mc.days];
+  const at = (t, i) => ({ x: x0 + Math.round(t / mc.horizon * calDays), y: t ? mc.total.start * b[i][steps.indexOf(t) - 1] : last.value });
+  return FC.map(([, i]) => steps.map(t => at(t, i)));
+}
 
 // 기록이 끊긴 기간(빈 계좌)은 선을 잇지 않는다
 const points = arr => arr.flatMap((p, i) => {
@@ -365,25 +375,36 @@ const clampWin = (a, b) => {  // 길이를 지키며 전체 범위 안으로
   return [a, a + len];
 };
 
-function renderReturns(series) {
+function renderReturns(series, mc) {
   const prev = win && span ? { win, atEnd: win[1] >= span[1] } : null;
   bal = series;
   if (!bal.length) { charts.cBal?.destroy(); charts.cSeek?.destroy(); $('win').hidden = true; $('winLabel').textContent = ''; return; }
   $('win').hidden = false;
-  span = [dayNum(bal[0].date), dayNum(bal.at(-1).date)];
+  fc = forecast(mc, bal.at(-1));
+  span = [dayNum(bal[0].date), fc ? fc[1].at(-1).x : dayNum(bal.at(-1).date)];
+  $('fcNote').textContent = mc?.error ? mc.error : fc
+    ? `점선: ${mc.months}개월 전망 중앙값 · 음영: 상위 25%–하위 25% (${mc.years ? `최근 ${mc.years}년` : '전체 기간'} 수익률 기준 ${mc.paths.toLocaleString()}회 시뮬레이션)` : '';
   if (prev) {  // 새로고침해도 보던 구간 유지(끝에 붙어 있었으면 새 날짜까지 따라간다)
     const len = prev.win[1] - prev.win[0];
     win = prev.atEnd ? clampWin(span[1] - len, span[1]) : clampWin(...prev.win);
   } else win = clampWin(span[1] - DEFAULT_DAYS, span[1]);
 
+  const accent = css('--accent'), band = { borderWidth: 0, pointRadius: 0, pointHoverRadius: 0 };
   chart('cBal', {
     type: 'line',
-    data: { datasets: [{ data: [], borderColor: css('--accent'), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4,
-      fill: { target: 'origin' }, backgroundColor: css('--accent-softer') }] },
-    options: { ...baseOpts(wonShort), plugins: { legend: { display: false }, tooltip: {
-      filter: c => c.raw.y != null, callbacks: {
+    data: { datasets: [{ data: [], borderColor: accent, borderWidth: 2, pointRadius: 0, pointHoverRadius: 4,
+      fill: { target: 'origin' }, backgroundColor: css('--accent-softer') },
+      ...(fc ? [
+        { label: FC[0][0], data: [], ...band },
+        { label: FC[1][0], data: [], borderColor: accent, borderWidth: 2, borderDash: [5, 4], pointRadius: 0, pointHoverRadius: 4 },
+        { label: FC[2][0], data: [], ...band, fill: 1, backgroundColor: css('--accent-soft') },
+      ] : [])] },
+    options: { ...baseOpts(wonShort), interaction: { mode: 'nearest', axis: 'x', intersect: false },
+      plugins: { legend: { display: false }, tooltip: {
+      filter: c => c.raw.y != null && !(c.datasetIndex && c.raw.x === dayNum(bal.at(-1).date)), callbacks: {
         title: c => c.length ? dayStr(c[0].raw.x) : '',
         label: c => {
+          if (c.datasetIndex) return ` ${c.dataset.label} ${won(c.raw.y)} (${pct(c.raw.y / bal.at(-1).value - 1, 1)})`;
           const p = bal.find(q => dayNum(q.date) === c.raw.x);
           return [' ' + won(p.value), ...(p.flow ? [` 입출금 ${p.flow > 0 ? '+' : ''}${won(p.flow)}`] : [])];
         } } } },
@@ -393,7 +414,8 @@ function renderReturns(series) {
   chart('cSeek', {
     type: 'line',
     data: { datasets: [{ data: points(bal), borderColor: css('--muted'), borderWidth: 1, pointRadius: 0,
-      fill: { target: 'origin' }, backgroundColor: css('--grid') }] },
+      fill: { target: 'origin' }, backgroundColor: css('--grid') },
+      ...(fc ? [{ data: fc[1], borderColor: css('--muted'), borderWidth: 1, borderDash: [3, 3], pointRadius: 0 }] : [])] },
     options: { maintainAspectRatio: false, events: [], layout: { padding: 0 },
       onResize: () => requestAnimationFrame(() => bal.length && applyWindow()),
       plugins: { legend: { display: false }, tooltip: { enabled: false } },
@@ -405,6 +427,7 @@ function renderReturns(series) {
 function applyWindow() {
   const [a, b] = win, c = charts.cBal;
   c.data.datasets[0].data = points(bal.filter(p => { const n = dayNum(p.date); return n >= a && n <= b; }));
+  fc?.forEach((line, i) => { c.data.datasets[i + 1].data = line.filter(p => p.x >= a && p.x <= b); });
   c.options.scales.x.min = a; c.options.scales.x.max = b;
   c.update('none');
   $('winLabel').textContent = `${dayStr(a)} – ${dayStr(b)}`;
@@ -461,49 +484,6 @@ function applyWindow() {
   }, { passive: false });
 })();
 
-// ---------------------------------------------------------------- Monte Carlo
-let mc = null, mcSeq = 0;
-async function loadMc() {
-  const seq = ++mcSeq;
-  $('mcNote').textContent = '계산 중…';
-  try {
-    const r = await req(`/api/montecarlo?years=${$('mcYears').value}`);
-    if (seq !== mcSeq) return;
-    mc = r; renderMc();
-  } catch (e) { $('mcNote').textContent = '시뮬레이션에 실패했습니다: ' + e.message; }
-}
-function renderMc() {
-  if (mc.error) { charts.cMc?.destroy(); $('mcStats').innerHTML = ''; $('mcNote').textContent = mc.error; return; }
-  const src = mc.total;
-  const b = src.bands.map(row => [0, ...row.map(v => v - 1)]);   // 시작점 0% 추가
-  const labels = [0, ...mc.days].map(d => d === 0 ? '현재' : `${d}일`);
-  const accent = css('--accent'), soft = css('--accent-soft'), softer = css('--accent-softer');
-  const line = (label, data, extra = {}) => ({ label, data, borderWidth: 0, pointRadius: 0, pointHoverRadius: 0, ...extra });
-  chart('cMc', {
-    type: 'line',
-    data: { labels, datasets: [
-      line('하위 5%', b[0]),
-      line('상위 5%', b[4], { fill: '-1', backgroundColor: softer }),
-      line('하위 25%', b[1]),
-      line('상위 25%', b[3], { fill: '-1', backgroundColor: soft }),
-      line('중앙값', b[2], { borderColor: accent, borderWidth: 2, pointHoverRadius: 4 }),
-    ] },
-    options: { ...baseOpts(v => pct(v, 0)),
-      plugins: { legend: { display: false }, tooltip: { itemSort: (a, b) => b.raw - a.raw,
-        callbacks: { label: c => ` ${c.dataset.label}: ${pct(c.raw, 1)}  ${won(src.start * (1 + c.raw))}` } } } },
-  });
-  const final = b.map(r => r[r.length - 1]);
-  const stats = [
-    ['중앙값', pct(final[2], 1)], ['90% 범위', `${pct(final[0], 0)} ~ ${pct(final[4], 0)}`],
-    ['손실 확률', (src.p_loss * 100).toFixed(0) + '%'],
-    [`목표 ${pct(mc.target, 0)} 이상 확률`, (src.p_target * 100).toFixed(0) + '%'],
-  ];
-  $('mcStats').innerHTML = stats.map(([k, v]) => `<div>${k}<b>${v}</b></div>`).join('');
-  const since = `${mc.since.slice(0, 4)}.${mc.since.slice(4, 6)}.${mc.since.slice(6)}`;
-  $('mcNote').textContent = `내 계좌 수익률(입출금 제외) ${since}부터 ${mc.history_days}거래일 기준 · 연 추세 ${pct(src.ann_drift, 0)}, 연 변동성 ${(src.ann_vol * 100).toFixed(0)}% · ${mc.paths.toLocaleString()}회 시뮬레이션 · 진한 영역 25–75%, 옅은 영역 5–95%`;
-}
-$('mcYears').onchange = loadMc;
-
 // ---------------------------------------------------------------- actions
 $('btnRetMore').onclick = () => $('dlgRet').showModal();
 $('btnRetClose').onclick = () => $('dlgRet').close();
@@ -529,6 +509,9 @@ function fillTab(name) {
   } else if (name === 'goal') {
     $('sAnnual').value = Math.round(s.annual_target * 100);
     $('sAcct').value = Math.round(s.default_account_target * 100);
+  } else if (name === 'forecast') {
+    $('sMcMonths').value = s.mc_months;
+    $('sMcYears').value = s.mc_years;
   } else {
     $('sTgToken').value = ''; $('sTgToken').placeholder = s.telegram_token_set ? '********' : '';
     $('sTgChat').value = s.telegram_chat_id;
@@ -540,7 +523,7 @@ function showTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.hidden = p.dataset.panel !== name);
 }
 function openSettings(tab = 'api') {
-  ['api', 'goal', 'notify', 'backfill'].forEach(fillTab);
+  ['api', 'goal', 'notify', 'forecast', 'backfill'].forEach(fillTab);
   showTab(tab);
   $('dlg').showModal();
 }
@@ -553,6 +536,7 @@ function tabPatch(name) {
     return p;
   }
   if (name === 'goal') return { annual_target: +v('sAnnual') / 100, default_account_target: +v('sAcct') / 100 };
+  if (name === 'forecast') return { mc_months: +v('sMcMonths'), mc_years: +$('sMcYears').value };
   const p = { telegram_chat_id: v('sTgChat') };
   if (v('sTgToken')) p.telegram_token = v('sTgToken');
   return p;

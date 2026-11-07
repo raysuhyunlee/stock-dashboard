@@ -22,6 +22,8 @@ DEFAULTS = {
     "telegram_token": "",
     "telegram_chat_id": "",
     "tiingo_key": "",           # 해외주식 과거 시세(백필)
+    "mc_months": 3,             # 전망 기간(개월)
+    "mc_years": 0,              # 전망에 쓸 과거 수익률 구간(년), 0 = 전체
 }
 SECRET_KEYS = {"app_secret", "telegram_token", "tiingo_key"}
 
