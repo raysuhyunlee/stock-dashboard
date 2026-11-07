@@ -41,10 +41,19 @@ header h1 { font-size: 18px; margin: 0; flex: 1; }
 .bar { height: 6px; background: var(--grid); border-radius: 3px; overflow: hidden; margin-top: var(--s2); }
 .bar > div { height: 100%; background: var(--accent); border-radius: 3px; }
 .bar.done > div { background: var(--up); }
-.grid2 { display: grid; grid-template-columns: 1fr 1fr; gap: var(--s4); }
-@media (max-width: 760px) { .grid2 { grid-template-columns: 1fr; } }
 .chart { position: relative; height: 220px; }
 .chart.tall { height: 300px; }
+.chart.huge { height: min(56vh, 480px); min-height: 280px; }
+.balance-head { display: flex; align-items: baseline; justify-content: space-between; gap: var(--s3); }
+.seeker { position: relative; height: 56px; margin-top: var(--s3); touch-action: none; user-select: none; cursor: pointer; }
+.seeker canvas { position: absolute; inset: 0; }
+.seeker .win { position: absolute; top: 0; bottom: 0; background: var(--accent-soft); border: 1px solid var(--accent);
+  border-radius: 4px; cursor: grab; outline-offset: 2px; }
+.seeker .win:active { cursor: grabbing; }
+.seeker .handle { position: absolute; top: 0; bottom: 0; width: 12px; cursor: ew-resize; }
+.seeker .handle::after { content: ""; position: absolute; top: 50%; left: 50%; width: 3px; height: 18px;
+  transform: translate(-50%, -50%); border-radius: 2px; background: var(--accent); }
+.seeker .handle.l { left: -7px; } .seeker .handle.r { right: -7px; }
 .table-wrap { overflow-x: auto; }
 table { width: 100%; border-collapse: collapse; font-variant-numeric: tabular-nums; }
 th, td { padding: var(--s2) var(--s2); text-align: right; border-bottom: 1px solid var(--border); white-space: nowrap; }
@@ -89,6 +98,10 @@ dialog[open] { margin-top: 12vh; }
 .result { font-size: var(--fs-s); }
 .actions { display: flex; justify-content: flex-end; align-items: center; gap: var(--s3); margin-top: var(--s4); }
 .actions .result { flex: 1; }
+.bf-progress { display: grid; gap: var(--s1); margin-top: var(--s3); }
+.bf-progress[hidden] { display: none; }
+.bf-progress progress { width: 100%; height: 8px; accent-color: var(--accent); }
+.tab-panel hr { border: 0; border-top: 1px solid var(--border); margin: var(--s4) 0; }
 </style>
 </head>
 <body>
@@ -114,23 +127,22 @@ dialog[open] { margin-top: 12vh; }
     <div class="card kpi"><div class="label">올해</div><div class="value" id="kYtd">–</div><div class="sub" id="kTarget"></div><div class="bar" id="kBar"><div></div></div></div>
   </section>
 
-  <section class="grid2">
-    <div class="card"><h2>누적 수익률</h2><div class="chart"><canvas id="cCum"></canvas></div></div>
-    <div class="card"><h2>일별 수익률</h2><div class="chart"><canvas id="cDaily"></canvas></div></div>
-  </section>
-
   <section class="card">
-    <h2>계좌</h2>
-    <div class="table-wrap"><table>
-      <thead><tr><th>계좌</th><th>총자산</th><th>평가손익</th><th>수익률</th><th>오늘</th><th>목표</th><th style="width:120px">진행</th></tr></thead>
-      <tbody id="tAccounts"></tbody>
-    </table></div>
+    <div class="balance-head"><h2>일별 잔고</h2><span class="meta" id="winLabel"></span></div>
+    <div class="chart huge"><canvas id="cBal"></canvas></div>
+    <div class="seeker" id="seeker">
+      <canvas id="cSeek"></canvas>
+      <div class="win" id="win" tabindex="0" role="slider" aria-label="표시 기간"
+        title="끌어서 기간 이동 · 양 끝을 끌어서 길이 조절">
+        <div class="handle l"></div><div class="handle r"></div>
+      </div>
+    </div>
   </section>
 
   <section class="card">
     <h2>보유 종목</h2>
     <div class="table-wrap"><table>
-      <thead><tr><th>종목</th><th>계좌</th><th>수량</th><th>평가금액</th><th>평가손익</th><th>수익률</th></tr></thead>
+      <thead><tr><th>종목</th><th>수량</th><th>평가금액</th><th>평가손익</th><th>수익률</th></tr></thead>
       <tbody id="tHoldings"></tbody>
     </table></div>
   </section>
@@ -164,6 +176,7 @@ dialog[open] { margin-top: 12vh; }
       <button type="button" role="tab" data-tab="api" aria-selected="true">API</button>
       <button type="button" role="tab" data-tab="goal" aria-selected="false">목표</button>
       <button type="button" role="tab" data-tab="notify" aria-selected="false">알림</button>
+      <button type="button" role="tab" data-tab="backfill" aria-selected="false">과거 기록</button>
     </div>
     <button type="button" class="icon" id="btnClose" title="닫기" aria-label="닫기">
       <svg viewBox="0 0 24 24" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round"><path d="M6 6l12 12M18 6L6 18"/></svg>
@@ -185,7 +198,7 @@ dialog[open] { margin-top: 12vh; }
   <form class="tab-panel" data-panel="goal" role="tabpanel" hidden>
     <div class="row">
       <div class="field"><label for="sAnnual">전체 계좌 연간 (%)</label><input id="sAnnual" type="number" step="1" min="1" required></div>
-      <div class="field"><label for="sAcct">계좌별 기본 (%)</label><input id="sAcct" type="number" step="1" min="1" required></div>
+      <div class="field"><label for="sAcct">평가수익률 (%)</label><input id="sAcct" type="number" step="1" min="1" required></div>
     </div>
     <div class="actions">
       <span class="result"></span>
@@ -202,6 +215,31 @@ dialog[open] { margin-top: 12vh; }
       <button type="submit" class="primary">저장</button>
     </div>
   </form>
+  <form class="tab-panel" data-panel="backfill" role="tabpanel" hidden>
+    <p class="meta">거래내역으로 과거 일별 총자산을 다시 계산해 빈 날짜를 채웁니다. 이미 수집된 날짜는 바꾸지 않습니다.</p>
+    <div class="field"><label for="sTiingo">Tiingo 키 (해외주식 과거 시세)</label><input id="sTiingo" type="password" autocomplete="off"></div>
+    <div class="row">
+      <div class="field"><label for="bStart">시작일 (비우면 처음부터)</label><input id="bStart" type="date"></div>
+      <div class="field"><label for="bEnd">종료일 (비우면 어제)</label><input id="bEnd" type="date"></div>
+    </div>
+    <div class="bf-progress" hidden>
+      <progress id="bProg" max="1" value="0"></progress>
+      <span class="meta" id="bMsg"></span>
+    </div>
+    <div class="actions">
+      <span class="result"></span>
+      <button type="button" id="btnBackfill" class="primary">현재 계정에서 불러오기</button>
+    </div>
+    <hr>
+    <p class="meta">이전한 계좌(예: N2)의 기록은 그 계정의 키로 한 번만 불러옵니다. 키와 토큰은 저장하지 않습니다.</p>
+    <div class="field"><label for="xKey">앱키</label><input id="xKey" autocomplete="off" required></div>
+    <div class="field"><label for="xSecret">앱시크릿</label><input id="xSecret" type="password" autocomplete="new-password" required></div>
+    <div class="field"><label for="xBrand">서비스</label>
+      <select id="xBrand"><option value="n2plug">QV/N2</option><option value="nhplug">나무</option></select></div>
+    <div class="actions">
+      <button type="submit" class="primary" id="btnBackfillX">다른 계정에서 불러오기</button>
+    </div>
+  </form>
 </dialog>
 
 <script>
@@ -216,7 +254,12 @@ const esc = s => String(s ?? '').replace(/[&<>"]/g, c => ({'&':'&amp;','<':'&lt;
 
 async function req(path, opt = {}) {
   const r = await fetch(path, { headers: { 'content-type': 'application/json' }, ...opt });
-  if (!r.ok) throw new Error((await r.text()) || r.status);
+  if (!r.ok) {
+    const t = await r.text();
+    let msg = t || r.status;
+    try { const d = JSON.parse(t).detail; if (typeof d === 'string') msg = d; } catch {}
+    throw new Error(msg);
+  }
   return r.json();
 }
 
@@ -272,51 +315,126 @@ function renderSummary() {
 
   const hit = [];
   if (t.ytd != null && t.ytd >= t.annual_target) hit.push(`전체 계좌가 연간 목표 ${pct(t.annual_target, 0)}를 달성했습니다.`);
-  s.accounts.forEach(a => { if (a.pnl_rate != null && a.pnl_rate >= a.target) hit.push(`계좌 ${a.acct}가 목표 ${pct(a.target, 0)}를 달성했습니다.`); });
+  if (t.pnl_rate != null && t.pnl_rate >= t.holding_target) hit.push(`전체 계좌 평가수익률이 목표 ${pct(t.holding_target, 0)}를 달성했습니다.`);
   $('goal').hidden = !hit.length;
   $('goal').textContent = hit.length ? '청산 검토: ' + hit.join(' ') : '';
-
-  $('tAccounts').innerHTML = s.accounts.map(a => {
-    const p = a.pnl_rate == null ? 0 : Math.max(0, Math.min(1, a.pnl_rate / a.target));
-    return `<tr>
-      <td>${esc(a.acct)}</td><td>${won(a.value)}</td>
-      <td class="${cls(a.pnl)}">${won(a.pnl)}</td><td class="${cls(a.pnl_rate)}">${pct(a.pnl_rate)}</td>
-      <td class="${cls(a.daily)}">${pct(a.daily)}</td>
-      <td><input class="pct" type="number" min="1" step="1" value="${Math.round(a.target * 100)}" data-acct="${esc(a.acct)}" aria-label="계좌 ${esc(a.acct)} 목표 %">%</td>
-      <td><div class="bar ${p >= 1 ? 'done' : ''}" title="${(p * 100).toFixed(0)}%"><div style="width:${p * 100}%"></div></div></td>
-    </tr>`;
-  }).join('') || `<tr><td colspan="7" class="empty">계좌 정보가 없습니다.</td></tr>`;
 
   $('tHoldings').innerHTML = s.holdings.map(h => {
     const pnl = h.value - h.cost, r = h.cost ? pnl / h.cost : null;
     return `<tr>
       <td><span class="name">${esc(h.name)}</span><span class="code">${esc(h.sym)} · ${h.market === 'US' ? '미국' : '국내'}</span></td>
-      <td>${esc(h.acct)}</td><td>${h.qty.toLocaleString('ko-KR')}</td><td>${won(h.value)}</td>
+      <td>${h.qty.toLocaleString('ko-KR')}</td><td>${won(h.value)}</td>
       <td class="${cls(pnl)}">${won(pnl)}</td><td class="${cls(r)}">${pct(r)}</td>
     </tr>`;
-  }).join('') || `<tr><td colspan="6" class="empty">보유 종목이 없습니다.</td></tr>`;
+  }).join('') || `<tr><td colspan="5" class="empty">보유 종목이 없습니다.</td></tr>`;
 
   $('alerts').innerHTML = s.alerts.map(a => `<li><span class="meta">${esc(a.sent_at.slice(0, 16).replace('T', ' '))}</span><br>${esc(a.message)}</li>`).join('')
     || `<li class="empty">아직 보낸 알림이 없습니다.</li>`;
 }
 
+// ---------------------------------------------------------------- 일별 잔고 + 윈도우 시커
+const wonShort = v => Math.abs(v) >= 1e8 ? (v / 1e8).toFixed(Math.abs(v) >= 1e10 ? 0 : 1) + '억'
+  : Math.abs(v) >= 1e4 ? Math.round(v / 1e4).toLocaleString('ko-KR') + '만' : Math.round(v) + '';
+const dayNum = d => Date.UTC(+d.slice(0, 4), +d.slice(4, 6) - 1, +d.slice(6)) / 864e5;
+const dayStr = n => new Date(n * 864e5).toISOString().slice(0, 10).replaceAll('-', '.');
+const DEFAULT_DAYS = 365;
+let bal = [], win = null, span = null;  // win·span: [시작, 끝] 일수(UTC 기준 일 번호)
+
+// 기록이 끊긴 기간(빈 계좌)은 선을 잇지 않는다
+const points = arr => arr.flatMap((p, i) => {
+  const pt = { x: dayNum(p.date), y: p.value };
+  return i && pt.x - dayNum(arr[i - 1].date) > 10 ? [{ x: pt.x - 1, y: null }, pt] : [pt];
+});
+const clampWin = (a, b) => {  // 길이를 지키며 전체 범위 안으로
+  const len = Math.min(b - a, span[1] - span[0]);
+  a = Math.min(Math.max(span[0], a), span[1] - len);
+  return [a, a + len];
+};
+
 function renderReturns(series) {
-  const labels = series.map(p => fmtDate(p.date).slice(2));
-  const accent = css('--accent');
-  chart('cCum', {
+  const prev = win && span ? { win, atEnd: win[1] >= span[1] } : null;
+  bal = series;
+  if (!bal.length) { charts.cBal?.destroy(); charts.cSeek?.destroy(); $('win').hidden = true; $('winLabel').textContent = ''; return; }
+  $('win').hidden = false;
+  span = [dayNum(bal[0].date), dayNum(bal.at(-1).date)];
+  if (prev) {  // 새로고침해도 보던 구간 유지(끝에 붙어 있었으면 새 날짜까지 따라간다)
+    const len = prev.win[1] - prev.win[0];
+    win = prev.atEnd ? clampWin(span[1] - len, span[1]) : clampWin(...prev.win);
+  } else win = clampWin(span[1] - DEFAULT_DAYS, span[1]);
+
+  chart('cBal', {
     type: 'line',
-    data: { labels, datasets: [{ label: '누적 수익률', data: series.map(p => p.cumulative), borderColor: accent,
-      borderWidth: 2, pointRadius: 0, pointHoverRadius: 4, fill: { target: 'origin', above: css('--accent-softer'), below: css('--accent-softer') } }] },
-    options: { ...baseOpts(v => pct(v, 0)), plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + pct(c.raw) } } } },
+    data: { datasets: [{ data: [], borderColor: css('--accent'), borderWidth: 2, pointRadius: 0, pointHoverRadius: 4,
+      fill: { target: 'origin' }, backgroundColor: css('--accent-softer') }] },
+    options: { ...baseOpts(wonShort), plugins: { legend: { display: false }, tooltip: {
+      filter: c => c.raw.y != null, callbacks: {
+        title: c => c.length ? dayStr(c[0].raw.x) : '',
+        label: c => {
+          const p = bal.find(q => dayNum(q.date) === c.raw.x);
+          return [' ' + won(p.value), ...(p.flow ? [` 입출금 ${p.flow > 0 ? '+' : ''}${won(p.flow)}`] : [])];
+        } } } },
+      scales: { x: { type: 'linear', grid: { display: false }, ticks: { maxTicksLimit: 6, maxRotation: 0, callback: v => dayStr(v).slice(2) } },
+        y: { ...baseOpts(wonShort).scales.y, min: 0 } } },
   });
-  const d = series.slice(1);
-  chart('cDaily', {
-    type: 'bar',
-    data: { labels: labels.slice(1), datasets: [{ label: '일별 수익률', data: d.map(p => p.daily),
-      backgroundColor: d.map(p => p.daily >= 0 ? css('--up') : css('--down')), borderRadius: 2, barPercentage: .9, categoryPercentage: 1 }] },
-    options: { ...baseOpts(v => pct(v, 1)), plugins: { legend: { display: false }, tooltip: { callbacks: { label: c => ' ' + pct(c.raw) } } } },
+  chart('cSeek', {
+    type: 'line',
+    data: { datasets: [{ data: points(bal), borderColor: css('--muted'), borderWidth: 1, pointRadius: 0,
+      fill: { target: 'origin' }, backgroundColor: css('--grid') }] },
+    options: { maintainAspectRatio: false, events: [], layout: { padding: 0 },
+      onResize: () => requestAnimationFrame(() => bal.length && applyWindow()),
+      plugins: { legend: { display: false }, tooltip: { enabled: false } },
+      scales: { x: { type: 'linear', display: false, min: span[0], max: span[1] }, y: { display: false, min: 0 } } },
   });
+  applyWindow();
 }
+
+function applyWindow() {
+  const [a, b] = win, c = charts.cBal;
+  c.data.datasets[0].data = points(bal.filter(p => { const n = dayNum(p.date); return n >= a && n <= b; }));
+  c.options.scales.x.min = a; c.options.scales.x.max = b;
+  c.update('none');
+  $('winLabel').textContent = `${dayStr(a)} – ${dayStr(b)}`;
+  const sx = charts.cSeek.scales.x, el = $('win');
+  el.style.left = sx.getPixelForValue(a) + 'px';
+  el.style.width = Math.max(4, sx.getPixelForValue(b) - sx.getPixelForValue(a)) + 'px';
+  el.setAttribute('aria-valuetext', $('winLabel').textContent);
+}
+
+(() => {  // 끌기: 박스 = 이동, 양 끝 = 길이 조절, 바깥 클릭 = 그 지점을 가운데로
+  const seeker = $('seeker'), MIN_DAYS = 7;
+  const dayAt = clientX => Math.round(charts.cSeek.scales.x.getValueForPixel(clientX - seeker.getBoundingClientRect().left));
+  let drag = null;
+  seeker.addEventListener('pointerdown', e => {
+    if (!span || span[1] - span[0] < 1) return;
+    const t = e.target.classList;
+    const mode = t.contains('l') ? 'l' : t.contains('r') ? 'r' : e.target.closest('.win') ? 'move' : 'jump';
+    const d = dayAt(e.clientX);
+    if (mode === 'jump') {
+      const half = (win[1] - win[0]) / 2;
+      win = clampWin(Math.round(d - half), Math.round(d + half)); applyWindow();
+    }
+    drag = { mode: mode === 'jump' ? 'move' : mode, start: d, win: [...win] };
+    seeker.setPointerCapture(e.pointerId);
+    e.preventDefault();
+  });
+  seeker.addEventListener('pointermove', e => {
+    if (!drag) return;
+    const d = dayAt(e.clientX) - drag.start, [a, b] = drag.win;
+    const min = Math.min(MIN_DAYS, span[1] - span[0]);
+    if (drag.mode === 'move') win = clampWin(a + d, b + d);
+    else if (drag.mode === 'l') win = [Math.min(Math.max(span[0], a + d), b - min), b];
+    else win = [a, Math.max(Math.min(span[1], b + d), a + min)];
+    applyWindow();
+  });
+  const end = () => { drag = null; };
+  seeker.addEventListener('pointerup', end);
+  seeker.addEventListener('pointercancel', end);
+  $('win').addEventListener('keydown', e => {  // ←/→ 일주일씩 이동
+    const step = { ArrowLeft: -7, ArrowRight: 7 }[e.key];
+    if (!step || !span) return;
+    win = clampWin(win[0] + step, win[1] + step); applyWindow(); e.preventDefault();
+  });
+})();
 
 // ---------------------------------------------------------------- Monte Carlo
 let mc = null, mcSeq = 0;
@@ -387,14 +505,6 @@ $('btnRefresh').onclick = async () => {
   finally { b.disabled = false; b.classList.remove('spin'); }
 };
 
-$('tAccounts').addEventListener('change', async e => {
-  const el = e.target; if (!el.dataset.acct) return;
-  const v = parseFloat(el.value);
-  if (!(v > 0)) { el.value = Math.round(settings.default_account_target * 100); return; }
-  await req(`/api/accounts/${encodeURIComponent(el.dataset.acct)}/target`, { method: 'PUT', body: JSON.stringify({ target: v / 100 }) });
-  summary = await req('/api/summary'); renderSummary();
-});
-
 const panel = name => document.querySelector(`.tab-panel[data-panel="${name}"]`);
 const result = (name, html) => { panel(name).querySelector('.result').innerHTML = html; };
 
@@ -404,6 +514,8 @@ function fillTab(name) {
     $('sKey').value = ''; $('sKey').placeholder = s.app_key || '앱키 입력';
     $('sSecret').value = ''; $('sSecret').placeholder = s.app_secret_set ? '********' : '앱시크릿 입력';
     $('sBrand').value = s.brand;
+  } else if (name === 'backfill') {
+    $('sTiingo').value = ''; $('sTiingo').placeholder = s.tiingo_key_set ? '********' : 'Tiingo 키 입력';
   } else if (name === 'goal') {
     $('sAnnual').value = Math.round(s.annual_target * 100);
     $('sAcct').value = Math.round(s.default_account_target * 100);
@@ -418,7 +530,7 @@ function showTab(name) {
   document.querySelectorAll('.tab-panel').forEach(p => p.hidden = p.dataset.panel !== name);
 }
 function openSettings(tab = 'api') {
-  ['api', 'goal', 'notify'].forEach(fillTab);
+  ['api', 'goal', 'notify', 'backfill'].forEach(fillTab);
   showTab(tab);
   $('dlg').showModal();
 }
@@ -444,7 +556,7 @@ async function saveTab(name) {
 $('btnSettings').onclick = () => openSettings();
 $('btnClose').onclick = () => $('dlg').close();
 document.querySelectorAll('.tabs [role=tab]').forEach(t => t.onclick = () => showTab(t.dataset.tab));
-document.querySelectorAll('.tab-panel').forEach(form => form.onsubmit = async e => {
+document.querySelectorAll('.tab-panel:not([data-panel=backfill])').forEach(form => form.onsubmit = async e => {
   e.preventDefault();
   const name = form.dataset.panel, b = form.querySelector('[type=submit]');
   b.disabled = true;
@@ -468,6 +580,57 @@ $('btnTest').onclick = async () => {
     result('api', `<span class="down" title="${esc(err.message)}">연결 실패 · 서버 응답이 없습니다</span>`);
   } finally { b.disabled = false; b.textContent = label; }
 };
+const ymd = id => $(id).value.replaceAll('-', '') || null;
+const bfButtons = () => [$('btnBackfill'), $('btnBackfillX')];
+async function pollBackfill() {
+  const box = panel('backfill').querySelector('.bf-progress');
+  box.hidden = false; bfButtons().forEach(b => b.disabled = true);
+  try {
+    for (;;) {
+      const j = await req('/api/backfill');
+      $('bProg').value = j.progress; $('bMsg').textContent = `${Math.round(j.progress * 100)}% · ${j.message}`;
+      if (j.running) { await new Promise(r => setTimeout(r, 1000)); continue; }
+      if (j.error) { result('backfill', `<span class="down">불러오지 못했습니다: ${esc(j.error)}</span>`); return false; }
+      const a = Object.values(j.result || {});
+      const days = a.reduce((n, x) => n + x.days, 0), skipped = a.reduce((n, x) => n + x.skipped, 0);
+      const missing = [...new Set(a.flatMap(x => x.missing || []))];
+      const since = a.map(x => x.since).filter(Boolean).sort()[0];
+      result('backfill', since
+        ? `<span class="meta">${since.slice(0, 4)}.${since.slice(4, 6)}.${since.slice(6)}부터 ${days}일치를 채웠습니다${skipped ? ` · 시세가 없어 ${skipped}일 건너뜀` : ''}${missing.length ? ` (Tiingo에 없음: ${esc(missing.join(', '))})` : ''}</span>`
+        : '<span class="meta">불러올 과거 거래내역이 없습니다</span>');
+      await loadAll();
+      return true;
+    }
+  } catch (err) {
+    result('backfill', `<span class="down">진행 상황을 확인하지 못했습니다: ${esc(err.message)}</span>`);
+  } finally { bfButtons().forEach(b => b.disabled = false); }
+}
+async function runBackfill(url, extra = {}) {
+  result('backfill', '');
+  try {
+    const key = $('sTiingo').value.trim();
+    if (key) {  // 새로 입력한 Tiingo 키는 저장하고 시작
+      settings = await req('/api/settings', { method: 'PUT', body: JSON.stringify({ tiingo_key: key }) });
+      fillTab('backfill');
+    }
+    await req(url, { method: 'POST', body: JSON.stringify({ start: ymd('bStart'), end: ymd('bEnd'), ...extra }) });
+  } catch (err) {
+    result('backfill', `<span class="down">시작하지 못했습니다: ${esc(err.message)}</span>`);
+    return false;
+  }
+  return pollBackfill();
+}
+$('btnBackfill').onclick = () => runBackfill('/api/backfill');
+panel('backfill').onsubmit = async e => {
+  e.preventDefault();
+  const creds = { app_key: $('xKey').value.trim(), app_secret: $('xSecret').value.trim(), brand: $('xBrand').value };
+  $('xSecret').value = '';  // 시작 요청에 실었으면 화면에도 남기지 않는다
+  if (await runBackfill('/api/backfill/external', creds)) $('xKey').value = '';
+};
+// 창을 다시 열었을 때 진행 중인 작업이 있으면 이어서 보여 준다
+$('btnSettings').addEventListener('click', async () => {
+  try { if ((await req('/api/backfill')).running) pollBackfill(); } catch {}
+});
 $('btnTestTg').onclick = async () => {
   await saveTab('notify');
   const r = await req('/api/notify/test', { method: 'POST' });

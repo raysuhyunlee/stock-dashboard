@@ -9,37 +9,36 @@ PCTS = (5, 25, 50, 75, 95)
 
 
 def returns(snaps: list[dict]) -> dict:
-    """일별 스냅샷 → 전체·계좌별 일간/누적 수익률.
+    """일별 스냅샷 → 전체 계좌 합산 일간/누적 수익률(시간가중).
 
-    입출금이 있던 날은 수익률이 왜곡된다(입출금 내역을 반영하지 않음).
+    그날 외부 입출금(flow)은 수익에서 뺀다. 입금은 장 시작, 출금은 장 마감에 일어난 것으로 본다:
+    r = (V_t − V_{t−1} − F) / (V_{t−1} + max(F, 0)).
     """
-    by_acct: dict[str, list[tuple[str, float]]] = defaultdict(list)
     total: dict[str, float] = defaultdict(float)
+    flow: dict[str, float] = defaultdict(float)
     for s in snaps:
-        by_acct[s["acct"]].append((s["date"], s["value"]))
-        total[s["date"]] += s["value"]
+        total[s["date"]] += s["value"] or 0
+        flow[s["date"]] += s.get("flow") or 0
 
-    def series(points: list[tuple[str, float]]) -> list[dict]:
-        out, cum, prev = [], 1.0, None
-        for d, v in points:
-            r = (v / prev - 1) if prev else 0.0
-            cum *= 1 + r
-            out.append({"date": d, "value": v, "daily": r, "cumulative": cum - 1})
-            prev = v or None
-        return out
-
-    tot = series(sorted(total.items()))
-    return {"total": tot, "accounts": {a: series(p) for a, p in by_acct.items()}}
+    out, cum, prev = [], 1.0, None
+    for d, v in sorted(total.items()):
+        f = flow[d]
+        base = (prev or 0) + max(f, 0)
+        r = (v - (prev or 0) - f) / base if prev and base > 0 else 0.0
+        cum *= 1 + r
+        out.append({"date": d, "value": v, "flow": flow[d], "daily": r, "cumulative": cum - 1})
+        prev = v or None
+    return {"total": out}
 
 
 def ytd_return(total_series: list[dict], year: str) -> float | None:
     pts = [p for p in total_series if p["date"].startswith(year)]
-    if len(pts) < 1:
+    if not pts:
         return None
-    # 연초 기준: 전년도 마지막 값이 있으면 그것, 없으면 올해 첫 스냅샷
+    # 연초 기준: 전년도 마지막 누적값이 있으면 그것, 없으면 올해 첫 스냅샷
     prev = [p for p in total_series if p["date"] < year + "0101"]
-    base = prev[-1]["value"] if prev else pts[0]["value"]
-    return pts[-1]["value"] / base - 1 if base else None
+    base = prev[-1]["cumulative"] if prev else pts[0]["cumulative"]
+    return (1 + pts[-1]["cumulative"]) / (1 + base) - 1
 
 
 def monte_carlo(positions: list[dict], histories: dict[str, list[tuple[str, float]]],

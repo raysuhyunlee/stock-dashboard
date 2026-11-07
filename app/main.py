@@ -14,7 +14,7 @@ from fastapi.responses import FileResponse
 from fastapi.security import HTTPBasic, HTTPBasicCredentials
 from pydantic import BaseModel, Field
 
-from . import analytics, jobs, nh, store
+from . import analytics, backfill, jobs, nh, store
 
 logging.basicConfig(level=logging.INFO, format="%(asctime)s %(levelname)s %(message)s")
 REFRESH_MIN = int(os.environ.get("REFRESH_MINUTES", "10"))
@@ -58,10 +58,7 @@ class SettingsIn(BaseModel):
     default_account_target: float | None = Field(None, gt=0)
     telegram_token: str | None = None
     telegram_chat_id: str | None = None
-
-
-class TargetIn(BaseModel):
-    target: float | None = Field(None, gt=0)  # None 이면 기본값으로 되돌림
+    tiingo_key: str | None = None
 
 
 @app.get("/api/settings", dependencies=[api])
@@ -97,20 +94,45 @@ def test_notify():
     return {"ok": jobs.notify("[테스트] 주식 모니터 알림이 정상적으로 설정되었습니다.")}
 
 
-@app.put("/api/accounts/{acct}/target", dependencies=[api])
-def put_target(acct: str, body: TargetIn):
-    t = dict(store.get_settings()["account_targets"])
-    if body.target is None:
-        t.pop(acct, None)
-    else:
-        t[acct] = body.target
-    store.update_settings({"account_targets": t})
-    return {"acct": acct, "target": body.target}
-
-
 @app.post("/api/refresh", dependencies=[api])
 def refresh():
     return jobs.refresh()
+
+
+class BackfillIn(BaseModel):
+    start: str | None = Field(None, pattern=r"^\d{8}$")  # 비우면 처음부터
+    end: str | None = Field(None, pattern=r"^\d{8}$")    # 비우면 어제까지
+
+
+class ExternalBackfillIn(BackfillIn):
+    app_key: str = Field(min_length=1)
+    app_secret: str = Field(min_length=1)
+    brand: str = Field(pattern="^(nhplug|n2plug)$")
+
+
+def _start_backfill(body: BackfillIn, creds: dict | None = None):
+    try:
+        return backfill.start(body.start, body.end, creds)
+    except ValueError as e:
+        raise HTTPException(400, str(e)) from e
+    except RuntimeError as e:
+        raise HTTPException(409, str(e)) from e
+
+
+@app.post("/api/backfill", dependencies=[api])
+def run_backfill(body: BackfillIn):
+    return _start_backfill(body)
+
+
+@app.post("/api/backfill/external", dependencies=[api])
+def run_backfill_external(body: ExternalBackfillIn):
+    return _start_backfill(body, {"app_key": body.app_key, "app_secret": body.app_secret,
+                                  "brand": body.brand})
+
+
+@app.get("/api/backfill", dependencies=[api])
+def backfill_status():
+    return backfill.job
 
 
 @app.get("/api/summary", dependencies=[api])
@@ -135,15 +157,8 @@ def summary():
             "since": tot[0]["date"] if tot else None,
             "ytd": analytics.ytd_return(tot, store.today()[:4]),
             "annual_target": s["annual_target"],
+            "holding_target": s["default_account_target"],
         },
-        "accounts": [{
-            **a,
-            "pnl_rate": a["pnl"] / a["cost"] if a["cost"] else None,
-            "daily": (ret["accounts"][a["acct"]][-1]["daily"]
-                      if len(ret["accounts"][a["acct"]]) > 1 else None),
-            "target": s["account_targets"].get(a["acct"], s["default_account_target"]),
-            "target_custom": a["acct"] in s["account_targets"],
-        } for a in accts],
         "holdings": store.holdings(),
         "alerts": store.alerts(),
     }

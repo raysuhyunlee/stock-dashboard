@@ -7,7 +7,7 @@ from datetime import datetime
 
 import requests
 
-from . import analytics, nh, store
+from . import analytics, backfill, nh, store
 
 log = logging.getLogger("monitor")
 _lock = threading.Lock()
@@ -42,14 +42,14 @@ def check_alerts(accounts: list[dict]) -> None:
         notify(msg)
         store.record_alert(key, msg)
 
-    for a in accounts:
-        t = s["account_targets"].get(a["acct"], s["default_account_target"])
-        r = a["pnl"] / a["cost"] if a["cost"] else None
-        key = f"acct:{a['acct']}:{t}"
-        if r is not None and r >= t and not store.alert_sent(key):
-            msg = f"[청산 알림] 계좌 {a['acct']} 수익률 {r:.1%} — 목표 {t:.0%} 달성"
-            notify(msg)
-            store.record_alert(key, msg)
+    cost = sum(a["cost"] for a in accounts)
+    r = sum(a["pnl"] for a in accounts) / cost if cost else None
+    t = s["default_account_target"]
+    key = f"holding:{t}"
+    if r is not None and r >= t and not store.alert_sent(key):
+        msg = f"[청산 알림] 전체 계좌 평가수익률 {r:.1%} — 목표 {t:.0%} 달성"
+        notify(msg)
+        store.record_alert(key, msg)
 
 
 def refresh() -> dict:
@@ -57,7 +57,13 @@ def refresh() -> dict:
         return state
     try:
         s = store.get_settings()
-        accounts = nh.source(s).accounts()
+        src = nh.source(s)
+        accounts = src.accounts()
+        for a in accounts:  # 오늘 입출금은 수익률에서 뺀다
+            try:
+                a["flow"] = backfill.today_flows(src, a["acct"], store.today())
+            except Exception:
+                log.exception("오늘 입출금 조회 실패(%s)", a["acct"])
         store.save_snapshot(store.today(), accounts)
         check_alerts(accounts)
         state.update(last_update=datetime.now(store.KST).isoformat(timespec="seconds"),
@@ -79,21 +85,13 @@ def history(sym: str, market: str) -> list:
 
 def simulate(horizon: int, paths: int, drift: str) -> dict:
     s = store.get_settings()
-    hs = store.holdings()
     all_snaps = store.snapshots()
     latest = max((y["date"] for y in all_snaps), default="")
     snaps = [x for x in all_snaps if x["date"] == latest]
     total_value = sum(x["value"] for x in snaps)
-    positions, histories = [], {}
-    agg: dict[str, dict] = {}
-    for h in hs:  # 같은 종목이 여러 계좌에 있으면 합산
-        key = f"{h['market']}:{h['sym']}"
-        p = agg.setdefault(key, {"key": key, "value": 0.0, "name": h["name"],
-                                 "sym": h["sym"], "market": h["market"]})
-        p["value"] += h["value"]
-    errors = []
-    for p in agg.values():
-        positions.append(p)
+    positions = [{**h, "key": f"{h['market']}:{h['sym']}"} for h in store.holdings()]
+    histories, errors = {}, []
+    for p in positions:
         try:
             histories[p["key"]] = history(p["sym"], p["market"])
         except Exception as e:

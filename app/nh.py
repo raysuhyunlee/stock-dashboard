@@ -5,6 +5,7 @@
 from __future__ import annotations
 
 import os
+from datetime import datetime, timedelta
 
 from . import store
 
@@ -18,6 +19,23 @@ def _f(v) -> float:
 
 class ApiError(Exception):
     pass
+
+
+def _period(fetch, n: int, since: str | None) -> list[tuple[str, float]]:
+    """fetch(end, count) 를 since 에 닿을 때까지 과거로 반복 호출해 날짜순으로 합친다."""
+    out: dict[str, float] = {}
+    end = store.today()
+    for _ in range(100):  # 안전장치
+        rows = [(dt, p) for dt, p in fetch(end, n if since is None else 500) if dt and p > 0]
+        new = {dt: p for dt, p in rows if dt not in out}
+        out.update(new)
+        if since is None or not new:
+            break
+        first = min(new)
+        if first <= since:
+            break
+        end = (datetime.strptime(first, "%Y%m%d") - timedelta(days=1)).strftime("%Y%m%d")
+    return sorted((dt, p) for dt, p in out.items() if since is None or dt >= since)
 
 
 # ================================================================ 실계좌
@@ -41,6 +59,19 @@ class NHSource:
             return call(path, body, timeout=15)
         except NhplugError as e:
             raise ApiError(f"{path}: {e}") from e
+
+    def pages(self, path: str, body: dict, key: str = "Output_0") -> list[dict]:
+        """연속조회를 끝까지 돌며 배열 블록을 합친다. 내역이 없으면 빈 리스트."""
+        from nhplug import NhplugError
+        from nhplug.client import paginate
+        rows: list[dict] = []
+        try:
+            for page in paginate(path, body, timeout=15):
+                if isinstance(page.get(key), list):
+                    rows += page[key]
+        except NhplugError as e:
+            raise ApiError(f"{path}: {e}") from e
+        return rows
 
     def account_numbers(self) -> list[str]:
         data = self._call("/n2/acctinfo", {})
@@ -92,22 +123,45 @@ class NHSource:
     def accounts(self) -> list[dict]:
         return [self.account(a) for a in self.account_numbers()]
 
-    def history(self, sym: str, market: str, n: int = 250) -> list[tuple[str, float]]:
-        end = store.today()
-        if market == "KR":
-            d = self._call("/krstock/quote/v1/period", {
-                "market_cd": "KRX", "iem_cd": sym, "edate": end, "array_cnt": str(n),
-                "gubun": "1", "view_main_yn": "Y",
-            })
-            rows = [(r.get("bsop_date"), _f(r.get("stck_prpr"))) for r in d.get("Output_1") or []]
-        else:
+    def history(self, sym: str, market: str, n: int = 250,
+                since: str | None = None) -> list[tuple[str, float]]:
+        """일별 종가. since 를 주면 그 날짜까지 과거로 넘겨 가며 모은다(한 번에 수백 건 제한)."""
+        def fetch(end: str, cnt: int):
+            if market == "KR":
+                d = self._call("/krstock/quote/v1/period", {
+                    "market_cd": "KRX", "iem_cd": sym, "edate": end, "array_cnt": str(cnt),
+                    "gubun": "1", "view_main_yn": "Y",
+                })
+                return [(r.get("bsop_date"), _f(r.get("stck_prpr"))) for r in d.get("Output_1") or []]
             d = self._call("/gbstock/quote/v1/period", {
-                "iem_cd": sym, "end_dt": end, "count": str(n), "gubun": "3",
+                "iem_cd": sym, "end_dt": end, "count": str(cnt), "gubun": "3",
                 "xtick": "0001", "today_cls": "0", "market_cls": "1",
             })
-            rows = [(r.get("trade_date") or r.get("bsop_date"), _f(r.get("close_prc")))
+            return [(r.get("trade_date") or r.get("bsop_date"), _f(r.get("close_prc")))
                     for r in d.get("Output_1") or []]
-        return sorted((dt, p) for dt, p in rows if dt and p > 0)
+        return _period(fetch, n, since)
+
+    def fx_history(self, code: str = "KRW", n: int = 250,
+                   since: str | None = None) -> list[tuple[str, float]]:
+        """원/달러 등 환율 일별 종가."""
+        def fetch(end: str, cnt: int):
+            d = self._call("/gbstock/quote/v1/symbolIndexFxPeriod", {
+                "iem_cd": code, "end_dt": end, "array_cnt": str(cnt), "maxavg": "0",
+                "gubun": "1", "xtick": "001", "today_cls": "0",
+            })
+            return [(r.get("bsop_date"), _f(r.get("ovrs_prpr"))) for r in d.get("Output_1") or []]
+        return _period(fetch, n, since)
+
+    def usd_cash(self, acct: str) -> float | None:
+        try:
+            us = self._call("/gbstock/inquiry/v1/balance", {
+                "act_no": acct, "qut_iqr_dit_cd": "9", "fc_sec_trd_nat_cd": "200",
+                "cur_cd": "USD", "xns_dit_cd": "1",
+            })
+        except ApiError:
+            return None
+        u0 = us.get("Output_0")
+        return _f(u0.get("fc_dca")) if isinstance(u0, dict) else None
 
 
 def source(s: dict | None = None) -> NHSource:
