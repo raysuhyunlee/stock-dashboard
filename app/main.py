@@ -29,7 +29,7 @@ async def lifespan(_):
     if not PASSWORD:
         logging.warning("DASHBOARD_PASSWORD 미설정 — 인증 없이 열립니다. 서버에서는 반드시 설정하세요.")
     sched = BackgroundScheduler(timezone=store.KST)
-    sched.add_job(jobs.refresh, "interval", minutes=REFRESH_MIN, next_run_time=None)
+    sched.add_job(jobs.refresh, "interval", minutes=REFRESH_MIN)
     sched.start()
     threading.Thread(target=jobs.refresh, daemon=True).start()
     yield
