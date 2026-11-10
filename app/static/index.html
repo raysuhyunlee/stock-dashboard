@@ -654,6 +654,7 @@ matchMedia('(prefers-color-scheme: dark)').addEventListener('change', () => summ
 loadAll().then(() => { if (!settings.app_secret_set) openSettings(); })
   .catch(e => { $('error').hidden = false; $('error').textContent = '데이터를 불러오지 못했습니다: ' + e.message; });
 setInterval(loadAll, 5 * 60 * 1000);
+document.addEventListener('visibilitychange', () => { if (!document.hidden && summary) loadAll(); });
 </script>
 </body>
 </html>
